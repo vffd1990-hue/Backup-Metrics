@@ -2,9 +2,14 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<title>Metricas Backups</title>
+<title>Métricas Backups</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+
+<!-- Chart.js -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<!-- jsPDF -->
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 
 <style>
 body{margin:0;font-family:Inter,Arial;background:#0b1220;color:#e5e7eb}
@@ -24,11 +29,10 @@ th,td{border-bottom:1px solid #1f2a3d;padding:6px;white-space:nowrap}
 </head>
 
 <body>
-<header>Monitoreo de Backups</header>
+<header>Estadísticas Backups</header>
 
 <div class="container">
 
-<!-- FILTROS -->
 <div class="card flex">
   <input type="file" accept=".csv" multiple onchange="loadCSV(event)">
   <select id="filterClient"></select>
@@ -41,9 +45,9 @@ th,td{border-bottom:1px solid #1f2a3d;padding:6px;white-space:nowrap}
   </select>
   <button onclick="applyFilters()">Aplicar</button>
   <button onclick="resetFilters()">Reset</button>
+  <button onclick="exportPDF()">Exportar PDF</button>
 </div>
 
-<!-- KPIs -->
 <div class="flex">
   <div class="kpi"><span>Ejecuciones</span><h2 id="kpiRuns">0</h2></div>
   <div class="kpi"><span>Archivos Copiados</span><h2 id="kpiFiles">0</h2></div>
@@ -51,21 +55,11 @@ th,td{border-bottom:1px solid #1f2a3d;padding:6px;white-space:nowrap}
   <div class="kpi"><span>Clientes Críticos</span><h2 id="kpiCrit">0</h2></div>
 </div>
 
-<!-- GRAFICAS -->
 <div class="card"><h3>Backups por día</h3><canvas id="runsDayChart"></canvas></div>
 <div class="card"><h3>Bytes copiados por día</h3><canvas id="bytesDayChart"></canvas></div>
+<div class="card"><h3>Ejecuciones por cliente</h3><canvas id="runsClientChart"></canvas></div>
+<div class="card"><h3>Duración promedio por cliente (min)</h3><canvas id="durationClientChart"></canvas></div>
 
-<div class="card">
-  <h3>Ejecuciones por cliente (click para filtrar)</h3>
-  <canvas id="runsClientChart"></canvas>
-</div>
-
-<div class="card">
-  <h3>Duración promedio por cliente (min)</h3>
-  <canvas id="durationClientChart"></canvas>
-</div>
-
-<!-- HISTORICO -->
 <div class="card">
 <h3>Histórico completo</h3>
 <table>
@@ -77,171 +71,170 @@ th,td{border-bottom:1px solid #1f2a3d;padding:6px;white-space:nowrap}
 </div>
 
 <script>
-let raw = [], data = [], charts = {};
+/* ========= CONFIG ========= */
+Chart.defaults.devicePixelRatio = 2; // balance calidad / peso
 
-// ================== HELPERS ==================
+let raw=[], data=[], charts={};
+
+/* ========= HELPERS ========= */
 function normalizeDate(v){
-  const d = new Date(v);
-  return isNaN(d) ? v.slice(0,10) : d.toISOString().slice(0,10);
+  const d=new Date(v);
+  return isNaN(d)?v.slice(0,10):d.toISOString().slice(0,10);
 }
-
 function durationToSeconds(v){
   if(!v) return 0;
   if(!isNaN(v)) return Number(v);
-  const p = v.split(':').map(Number);
-  if(p.length === 3) return p[0]*3600 + p[1]*60 + p[2];
-  if(p.length === 2) return p[0]*60 + p[1];
-  return 0;
+  const p=v.split(':').map(Number);
+  return p.length===3?p[0]*3600+p[1]*60+p[2]:p.length===2?p[0]*60+p[1]:0;
+}
+function parseCSVLine(l){
+  return l.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/)
+          .map(v=>v.replace(/^"|"$/g,''));
 }
 
-function parseCSVLine(line){
-  const re = /,(?=(?:(?:[^"]*"){2})*[^"]*$)/;
-  return line.split(re).map(v=>v.replace(/^"|"$/g,''));
-}
-
-// ================== LOAD CSV ==================
+/* ========= CSV ========= */
 function loadCSV(e){
-  raw = [];
+  raw=[];
   Promise.all([...e.target.files].map(f=>f.text())).then(txts=>{
     txts.forEach(t=>{
-      const lines = t.split(/\r?\n/).filter(Boolean);
-      const headers = parseCSVLine(lines[0]);
+      const lines=t.split(/\r?\n/).filter(Boolean);
+      const headers=parseCSVLine(lines[0]);
       lines.slice(1).forEach(l=>{
-        const values = parseCSVLine(l);
-        const o = {};
+        const v=parseCSVLine(l),o={};
         headers.forEach((h,i)=>{
-          o[h] = values[i];
-          if(h === 'Fecha') o[h] = normalizeDate(values[i]);
+          o[h]=v[i];
+          if(h==='Fecha') o[h]=normalizeDate(v[i]);
         });
         raw.push(o);
       });
     });
-    initFilters();
-    applyFilters();
+    initFilters(); applyFilters();
   });
 }
 
-// ================== FILTROS ==================
+/* ========= FILTROS ========= */
 function initFilters(){
-  filterClient.innerHTML =
-    '<option value="">Todos</option>' +
-    [...new Set(raw.map(r=>r.Cliente))]
-      .map(c=>`<option>${c}</option>`).join('');
+  filterClient.innerHTML='<option value="">Todos</option>'+
+    [...new Set(raw.map(r=>r.Cliente))].map(c=>`<option>${c}</option>`).join('');
 }
-
 function applyFilters(){
-  data = raw.filter(r=>{
-    if(filterClient.value && r.Cliente !== filterClient.value) return false;
-    if(fromDate.value && r.Fecha < fromDate.value) return false;
-    if(toDate.value && r.Fecha > toDate.value) return false;
+  data=raw.filter(r=>{
+    if(filterClient.value && r.Cliente!==filterClient.value) return false;
+    if(fromDate.value && r.Fecha<fromDate.value) return false;
+    if(toDate.value && r.Fecha>toDate.value) return false;
     return true;
   });
   renderAll();
 }
-
 function resetFilters(){
-  filterClient.value='';
-  fromDate.value='';
-  toDate.value='';
+  filterClient.value=''; fromDate.value=''; toDate.value='';
   applyFilters();
 }
 
-// ================== RENDER ==================
+/* ========= RENDER ========= */
 function renderAll(){
-  renderKPIs();
-  renderCharts();
-  renderTable();
+  renderKPIs(); renderCharts(); renderTable();
 }
 
 function renderKPIs(){
-  const unit = unitSelect.value;
-  const factor = {MB:1024**2,GB:1024**3,TB:1024**4}[unit];
-
-  kpiRuns.textContent = data.length;
-  kpiFiles.textContent = data.reduce((s,r)=>s+Number(r.ArchivosCopiados||0),0);
-  kpiBytes.textContent =
-    (data.reduce((s,r)=>s+Number(r.BytesCopiados||0),0)/factor).toFixed(2)+' '+unit;
-
-  kpiCrit.textContent = [...new Set(
-    data.filter(r=>r.Estado!=='OK'||Number(r.DiasSinCopia)>=3)
-        .map(r=>r.Cliente)
-  )].length;
+  const u=unitSelect.value,f={MB:1024**2,GB:1024**3,TB:1024**4}[u];
+  kpiRuns.textContent=data.length;
+  kpiFiles.textContent=data.reduce((s,r)=>s+Number(r.ArchivosCopiados||0),0);
+  kpiBytes.textContent=(data.reduce((s,r)=>s+Number(r.BytesCopiados||0),0)/f).toFixed(2)+' '+u;
+  kpiCrit.textContent=[...new Set(data.filter(r=>r.Estado!=='OK'||Number(r.DiasSinCopia)>=3).map(r=>r.Cliente))].length;
 }
 
 function renderCharts(){
   Object.values(charts).forEach(c=>c&&c.destroy());
-  charts = {};
+  charts={};
 
-  const unit = unitSelect.value;
-  const factor = {MB:1024**2,GB:1024**3,TB:1024**4}[unit];
-
-  const runsDay={}, bytesDay={}, runsClient={}, durClient={};
-
+  const rd={},bd={},rc={},dc={};
   data.forEach(r=>{
-    runsDay[r.Fecha]=(runsDay[r.Fecha]||0)+1;
-    bytesDay[r.Fecha]=(bytesDay[r.Fecha]||0)+Number(r.BytesCopiados||0);
-    runsClient[r.Cliente]=(runsClient[r.Cliente]||0)+1;
-
-    const sec = durationToSeconds(r.Duracion);
-    if(sec>0){
-      durClient[r.Cliente]=(durClient[r.Cliente]||[]).concat(sec);
-    }
+    rd[r.Fecha]=(rd[r.Fecha]||0)+1;
+    bd[r.Fecha]=(bd[r.Fecha]||0)+Number(r.BytesCopiados||0);
+    rc[r.Cliente]=(rc[r.Cliente]||0)+1;
+    const s=durationToSeconds(r.Duracion);
+    if(s>0)(dc[r.Cliente]=dc[r.Cliente]||[]).push(s);
   });
 
-  const days = Object.keys(runsDay).sort();
-
-  charts.runsDay = new Chart(runsDayChart,{
-    type:'bar',
-    data:{labels:days,datasets:[{label:'Ejecuciones',data:days.map(d=>runsDay[d]),backgroundColor:'#38bdf8'}]}
-  });
-
-  charts.bytesDay = new Chart(bytesDayChart,{
-    type:'line',
-    data:{labels:days,datasets:[{label:`Datos (${unit})`,data:days.map(d=>bytesDay[d]/factor),borderColor:'#22c55e',tension:.3}]}
-  });
-
-  // ✅ CAMBIO A PIE CHART
-  charts.runsClient = new Chart(runsClientChart,{
-    type:'pie',
-    data:{
-      labels:Object.keys(runsClient),
-      datasets:[{
-        data:Object.values(runsClient),
-        backgroundColor:[
-          '#38bdf8','#a855f7','#22c55e','#f97316',
-          '#ef4444','#14b8a6','#eab308','#6366f1'
-        ]
-      }]
-    },
-    options:{
-      onClick:(e,els)=>{
-        if(!els.length) return;
-        filterClient.value =
-          charts.runsClient.data.labels[els[0].index];
-        applyFilters();
-      }
-    }
-  });
-
-  charts.durationClient = new Chart(durationClientChart,{
-    type:'bar',
-    data:{labels:Object.keys(durClient),
-      datasets:[{label:'Duración promedio (min)',
-      data:Object.values(durClient)
-        .map(a => (a.reduce((x,y)=>x+y,0)/a.length)/60),
-      backgroundColor:'#f97316'}]}
-  });
+  charts.runsDay=new Chart(runsDayChart,{type:'bar',data:{labels:Object.keys(rd),datasets:[{data:Object.values(rd)}]}});
+  charts.bytesDay=new Chart(bytesDayChart,{type:'line',data:{labels:Object.keys(bd),datasets:[{data:Object.values(bd)}]}});
+  charts.runsClient=new Chart(runsClientChart,{type:'pie',data:{labels:Object.keys(rc),datasets:[{data:Object.values(rc)}]}});
+  charts.durationClient=new Chart(durationClientChart,{type:'bar',data:{labels:Object.keys(dc),datasets:[{data:Object.values(dc).map(a=>a.reduce((x,y)=>x+y,0)/a.length/60)}]}});
 }
 
+/* ========= TABLE ========= */
 function renderTable(){
   if(!data.length) return;
-  const h = Object.keys(data[0]);
+  const h=Object.keys(data[0]);
   csvHead.innerHTML='<tr>'+h.map(x=>`<th>${x}</th>`).join('')+'</tr>';
-  csvBody.innerHTML=data.map(r=>
-    '<tr>'+h.map(k=>`<td>${r[k]}</td>`).join('')+'</tr>'
-  ).join('');
+  csvBody.innerHTML=data.map(r=>'<tr>'+h.map(k=>`<td>${r[k]}</td>`).join('')+'</tr>').join('');
+}
+
+/* ========= PDF ========= */
+function exportPDF(){
+  const {jsPDF}=window.jspdf;
+  const pdf=new jsPDF('l','mm','a4',{compress:true});
+  const W=297,H=210,M=15;
+
+  function footer(){
+    pdf.setFontSize(9);
+    pdf.text('Valentin Flores Delgado',W/2,H-14,{align:'center'});
+    pdf.text('https://vffd1990-hue.github.io/Backup-Metrics/',W/2,H-8,{align:'center'});
+  }
+
+  pdf.setFontSize(18);
+  pdf.text('Reporte de Respaldos',W/2,20,{align:'center'});
+
+  pdf.setFontSize(11);
+  pdf.text(
+    `Cliente: ${filterClient.value||'Todos'}\n`+
+    `Periodo: ${fromDate.value||'N/A'} - ${toDate.value||'N/A'}\n`+
+    `Generado: ${new Date().toLocaleString()}`,
+    M,40
+  );
+
+  pdf.text(
+    `Ejecuciones: ${kpiRuns.textContent}\n`+
+    `Archivos: ${kpiFiles.textContent}\n`+
+    `Datos: ${kpiBytes.textContent}\n`+
+    `Clientes críticos: ${kpiCrit.textContent}`,
+    M,75
+  );
+
+  footer();
+
+  function chartPage(title,desc,chart,sidebarData=null){
+    pdf.addPage();
+    pdf.setFontSize(14); pdf.text(title,M,20);
+    pdf.setFontSize(11); pdf.text(desc,M,30);
+
+    if(sidebarData){
+      let y=45;
+      pdf.setFontSize(10);
+      sidebarData.forEach(([k,v])=>{
+        pdf.text(`${k}: ${v}`,M,y);
+        y+=6;
+      });
+      pdf.addImage(chart.toBase64Image(),'PNG',M+70,40,W-M*2-70,130,undefined,'FAST');
+    }else{
+      pdf.addImage(chart.toBase64Image(),'PNG',M,40,W-M*2,130,undefined,'FAST');
+    }
+    footer();
+  }
+
+  chartPage('Backups por día','Ejecuciones diarias.',charts.runsDay);
+  chartPage('Bytes copiados por día','Volumen diario transferido.',charts.bytesDay);
+
+  const pieData=Object.entries(charts.runsClient.data.labels)
+    .map((_,i)=>[charts.runsClient.data.labels[i],charts.runsClient.data.datasets[0].data[i]]);
+
+  chartPage('Ejecuciones por cliente','Distribución por cliente.',charts.runsClient,pieData);
+
+  chartPage('Duración promedio por cliente','Duración promedio (min).',charts.durationClient);
+
+  pdf.save('Reporte_Respaldos.pdf');
 }
 </script>
 </body>
 </html>
-
