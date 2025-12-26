@@ -61,15 +61,15 @@ tr.row-critical:hover {
 <div class="card flex">
   <input type="file" accept=".csv" multiple onchange="loadCSV(event)">
   <select id="filterClient"></select>
-  <input type="date" id="fromDate">
-  <input type="date" id="toDate">
-  <select id="unitSelect" onchange="renderAll()">
+  <input type="date" id="fromDate" title="Fecha de inicio">
+<input type="date" id="toDate" title="Fecha final">
+  <select id="unitSelect" onchange="renderAll()" title="Unidad de datos">
     <option value="MB">MB</option>
     <option value="GB" selected>GB</option>
     <option value="TB">TB</option>
   </select>
   <button onclick="applyFilters()">Aplicar</button>
-  <button onclick="resetFilters()">Reset</button>
+  <button onclick="resetFilters()">Limpiar filtros</button>
   <button onclick="exportPDF()">Exportar PDF</button>
 </div>
 
@@ -84,6 +84,8 @@ tr.row-critical:hover {
 <div class="card"><h3>Bytes copiados por día</h3><canvas id="bytesDayChart"></canvas></div>
 <div class="card"><h3>Ejecuciones por cliente</h3><canvas id="runsClientChart"></canvas></div>
 <div class="card"><h3>Duración promedio por cliente (min)</h3><canvas id="durationClientChart"></canvas></div>
+<div class="card"><h3>Bytes copiados por cliente</h3><canvas id="bytesClientChart"></canvas></div>
+
 
 <div class="card">
 <h3>Histórico completo</h3>
@@ -139,9 +141,10 @@ function loadCSV(e){
 
 /* ========= FILTROS ========= */
 function initFilters(){
-  filterClient.innerHTML='<option value="">Todos</option>'+
+  filterClient.innerHTML='<option value="">Filtrar por cliente</option>'+
     [...new Set(raw.map(r=>r.Cliente))].map(c=>`<option>${c}</option>`).join('');
 }
+
 function applyFilters(){
   data=raw.filter(r=>{
     if(filterClient.value && r.Cliente!==filterClient.value) return false;
@@ -173,19 +176,244 @@ function renderCharts(){
   Object.values(charts).forEach(c=>c&&c.destroy());
   charts={};
 
-  const rd={},bd={},rc={},dc={};
+  const rd={},bd={},rc={},dc={},bc={};
   data.forEach(r=>{
     rd[r.Fecha]=(rd[r.Fecha]||0)+1;
     bd[r.Fecha]=(bd[r.Fecha]||0)+Number(r.BytesCopiados||0);
     rc[r.Cliente]=(rc[r.Cliente]||0)+1;
+	bc[r.Cliente]=(bc[r.Cliente]||0)+Number(r.BytesCopiados||0);
     const s=durationToSeconds(r.Duracion);
     if(s>0)(dc[r.Cliente]=dc[r.Cliente]||[]).push(s);
   });
 
-  charts.runsDay=new Chart(runsDayChart,{type:'bar',data:{labels:Object.keys(rd),datasets:[{data:Object.values(rd)}]}});
-  charts.bytesDay=new Chart(bytesDayChart,{type:'line',data:{labels:Object.keys(bd),datasets:[{data:Object.values(bd)}]}});
-  charts.runsClient=new Chart(runsClientChart,{type:'pie',data:{labels:Object.keys(rc),datasets:[{data:Object.values(rc)}]}});
-  charts.durationClient=new Chart(durationClientChart,{type:'bar',data:{labels:Object.keys(dc),datasets:[{data:Object.values(dc).map(a=>a.reduce((x,y)=>x+y,0)/a.length/60)}]}});
+  charts.runsDay = new Chart(runsDayChart, {
+  type: 'bar',
+  data: {
+    labels: Object.keys(rd),
+    datasets: [{ data: Object.values(rd) }]
+  },
+options: {
+  plugins: {
+    legend: {
+      labels: {
+        color: '#e5e7eb',
+        font: { size: 14, weight: '600' }
+      }
+    }
+  },
+  scales: {
+    x: {
+      ticks: {
+        color: '#e5e7eb',
+        font: {
+          size: 13,
+          weight: '500'
+        }
+      },
+      grid: {
+        color: 'rgba(255,255,255,0.05)'
+      }
+    },
+    y: {
+      ticks: {
+        color: '#e5e7eb',
+        font: {
+          size: 13,
+          weight: '500'
+        }
+      },
+      grid: {
+        color: 'rgba(255,255,255,0.05)'
+      }
+    }
+  }
+}
+
+});
+
+charts.bytesDay = new Chart(bytesDayChart, {
+  type: 'line',
+  data: {
+    labels: Object.keys(bd),
+    datasets: [{ data: Object.values(bd) }]
+  },
+options: {
+  plugins: {
+    legend: {
+      labels: {
+        color: '#e5e7eb',
+        font: { size: 14, weight: '600' }
+      }
+    }
+  },
+  scales: {
+    x: {
+      ticks: {
+        color: '#e5e7eb',
+        font: {
+          size: 13,
+          weight: '500'
+        }
+      },
+      grid: {
+        color: 'rgba(255,255,255,0.05)'
+      }
+    },
+    y: {
+      ticks: {
+        color: '#e5e7eb',
+        font: {
+          size: 13,
+          weight: '500'
+        }
+      },
+      grid: {
+        color: 'rgba(255,255,255,0.05)'
+      }
+    }
+  }
+}
+
+});
+
+charts.runsClient = new Chart(runsClientChart, {
+  type: 'pie',
+  data: {
+    labels: Object.keys(rc),
+    datasets: [{ data: Object.values(rc) }]
+  },
+options: {
+  plugins: {
+    legend: {
+      labels: {
+        color: '#e5e7eb',
+        font: { size: 14, weight: '600' }
+      }
+    }
+  },
+  scales: {
+    x: {
+      ticks: {
+        color: '#e5e7eb',
+        font: {
+          size: 13,
+          weight: '500'
+        }
+      },
+      grid: {
+        color: 'rgba(255,255,255,0.05)'
+      }
+    },
+    y: {
+      ticks: {
+        color: '#e5e7eb',
+        font: {
+          size: 13,
+          weight: '500'
+        }
+      },
+      grid: {
+        color: 'rgba(255,255,255,0.05)'
+      }
+    }
+  }
+}
+
+});
+
+charts.bytesClient = new Chart(bytesClientChart, {
+  type: 'bar',
+  data: {
+    labels: Object.keys(bc),
+    datasets: [{ data: Object.values(bc) }]
+  },
+ options: {
+  plugins: {
+    legend: {
+      labels: {
+        color: '#e5e7eb',
+        font: { size: 14, weight: '600' }
+      }
+    }
+  },
+  scales: {
+    x: {
+      ticks: {
+        color: '#e5e7eb',
+        font: {
+          size: 13,
+          weight: '500'
+        }
+      },
+      grid: {
+        color: 'rgba(255,255,255,0.05)'
+      }
+    },
+    y: {
+      ticks: {
+        color: '#e5e7eb',
+        font: {
+          size: 13,
+          weight: '500'
+        }
+      },
+      grid: {
+        color: 'rgba(255,255,255,0.05)'
+      }
+    }
+  }
+}
+
+});
+
+ /* type:'bar',
+  data:{
+    labels:Object.keys(bc),
+    datasets:[{data:Object.values(bc)}]
+  }
+}); */
+
+charts.durationClient = new Chart(durationClientChart, {
+  type: 'bar',
+  data: {
+    labels: Object.keys(dc),
+    datasets: [{
+      data: Object.values(dc).map(
+        a => a.reduce((x, y) => x + y, 0) / a.length / 60
+      )
+    }]
+  },
+  options: {
+    plugins: {
+      legend: {
+        labels: {
+          color: '#e5e7eb',
+          font: { size: 14, weight: '600' }
+        }
+      }
+    },
+    scales: {
+      x: {
+        ticks: {
+          color: '#e5e7eb',
+          font: { size: 13, weight: '500' }
+        },
+        grid: {
+          color: 'rgba(255,255,255,0.05)'
+        }
+      },
+      y: {
+        ticks: {
+          color: '#e5e7eb',
+          font: { size: 13, weight: '500' }
+        },
+        grid: {
+          color: 'rgba(255,255,255,0.05)'
+        }
+      }
+    }
+  }
+});
 }
 
 /* ========= TABLE ========= */
