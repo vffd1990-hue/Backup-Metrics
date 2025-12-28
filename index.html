@@ -11,6 +11,8 @@
 <!-- jsPDF -->
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 
+
+
 <style>
 body{margin:0;font-family:Inter,Arial;background:#0b1220;color:#e5e7eb}
 header{background:#020617;padding:16px;font-size:18px;color:#38bdf8}
@@ -50,6 +52,77 @@ tr.row-critical:hover {
 }
 
 
+/* ===== TABLA TOP 10 (alineación fija) ===== */
+.table-top10 {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.table-top10 th,
+.table-top10 td {
+  text-align: left;
+}
+
+.table-top10 th:nth-child(1),
+.table-top10 td:nth-child(1) {
+  width: 40px;
+  text-align: center;
+}
+
+.table-top10 th:nth-child(2),
+.table-top10 td:nth-child(2) {
+  width: 120px;
+}
+
+.table-top10 th:nth-child(3),
+.table-top10 td:nth-child(3) {
+  width: 220px;
+}
+
+.table-top10 th:nth-child(4),
+.table-top10 td:nth-child(4) {
+  width: 140px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* ===== HISTÓRICO CON SCROLL ===== */
+.historico-wrapper {
+  max-height: 650px; /* ~25 filas */
+  overflow-y: auto;
+  border: 1px solid #1f2a3d;
+  border-radius: 8px;
+}
+
+/* botón copiar */
+.copy-btn {
+  background: #020617;
+  border: 1px solid #334155;
+  color: #38bdf8;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 11px;
+}
+.copy-btn:hover {
+  background: #0b1220;
+}
+
+/* ===== HISTÓRICO: THEAD FIJO + TBODY SCROLL ===== */
+.historico-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.historico-table thead,
+.historico-table tbody tr {
+  display: table;
+  width: 100%;
+  table-layout: fixed;
+}
+
+
 </style>
 </head>
 
@@ -86,14 +159,55 @@ tr.row-critical:hover {
 <div class="card"><h3>Duración promedio por cliente (min)</h3><canvas id="durationClientChart"></canvas></div>
 <div class="card"><h3>Bytes copiados por cliente</h3><canvas id="bytesClientChart"></canvas></div>
 
+<div class="card">
+  <h3>Top 10 copias más grandes</h3>
+  <table class="table-top10">
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Fecha</th>
+        <th>Cliente</th>
+        <th>Datos Copiados</th>
+      </tr>
+    </thead>
+    <tbody id="top10Body"></tbody>
+  </table>
+</div>
 
 <div class="card">
-<h3>Histórico completo</h3>
-<table>
-<thead id="csvHead"></thead>
-<tbody id="csvBody"></tbody>
-</table>
+  <h3>Comparador de periodos</h3>
+  <div class="flex">
+    <div>
+      <label>Periodo A</label><br>
+      <input type="date" id="cmpAFrom">
+      <input type="date" id="cmpATo">
+    </div>
+
+    <div>
+      <label>Periodo B</label><br>
+      <input type="date" id="cmpBFrom">
+      <input type="date" id="cmpBTo">
+    </div>
+
+    <button onclick="renderComparison()">Comparar</button>
+  </div>
+
+  <canvas id="compareChart"></canvas>
 </div>
+
+
+
+<div class="card">
+  <h3>Histórico</h3>
+  <div class="historico-wrapper">
+    <table class="historico-table">
+  <thead id="csvHead"></thead>
+  <tbody id="csvBody"></tbody>
+</table>
+
+  </div>
+</div>
+
 
 </div>
 
@@ -101,23 +215,45 @@ tr.row-critical:hover {
 /* ========= CONFIG ========= */
 Chart.defaults.devicePixelRatio = 2; // balance calidad / peso
 
-let raw=[], data=[], charts={};
+let raw = [], data = [], charts = {};
+
+
+// ===== FONDO OSCURO PARA EXPORTACIÓN (PDF / PNG) =====
+Chart.register({
+  id: 'darkBackground',
+  beforeDraw: (chart) => {
+    const ctx = chart.ctx;
+    ctx.save();
+    ctx.globalCompositeOperation = 'destination-over';
+    ctx.fillStyle = '#0b1220';
+    ctx.fillRect(0, 0, chart.width, chart.height);
+    ctx.restore();
+  }
+});
 
 /* ========= HELPERS ========= */
 function normalizeDate(v){
-  const d=new Date(v);
-  return isNaN(d)?v.slice(0,10):d.toISOString().slice(0,10);
+  const d = new Date(v);
+  return isNaN(d) ? v.slice(0,10) : d.toISOString().slice(0,10);
 }
+
 function durationToSeconds(v){
   if(!v) return 0;
   if(!isNaN(v)) return Number(v);
-  const p=v.split(':').map(Number);
-  return p.length===3?p[0]*3600+p[1]*60+p[2]:p.length===2?p[0]*60+p[1]:0;
+  const p = v.split(':').map(Number);
+  return p.length === 3
+    ? p[0]*3600 + p[1]*60 + p[2]
+    : p.length === 2
+      ? p[0]*60 + p[1]
+      : 0;
 }
+
 function parseCSVLine(l){
-  return l.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/)
-          .map(v=>v.replace(/^"|"$/g,''));
+  return l
+    .split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/)
+    .map(v => v.replace(/^"|"$/g,''));
 }
+
 
 /* ========= CSV ========= */
 function loadCSV(e){
@@ -161,7 +297,7 @@ function resetFilters(){
 
 /* ========= RENDER ========= */
 function renderAll(){
-  renderKPIs(); renderCharts(); renderTable();
+  renderKPIs(); renderCharts(); renderTable(); renderTop10();
 }
 
 function renderKPIs(){
@@ -416,16 +552,41 @@ charts.durationClient = new Chart(durationClientChart, {
 });
 }
 
+function renderTop10() {
+  const tbody = document.getElementById('top10Body');
+  if (!tbody) return;
+
+  const unit = unitSelect.value;
+  const factor = { MB: 1024**2, GB: 1024**3, TB: 1024**4 }[unit];
+
+  const top10 = [...data]
+    .filter(r => Number(r.BytesCopiados) > 0)
+    .sort((a, b) => Number(b.BytesCopiados) - Number(a.BytesCopiados))
+    .slice(0, 10);
+
+  tbody.innerHTML = top10.map((r, i) => `
+    <tr>
+      <td>${i + 1}</td>
+      <td>${r.Fecha}</td>
+      <td>${r.Cliente}</td>
+      <td>${(Number(r.BytesCopiados) / factor).toFixed(2)} ${unit}</td>
+    </tr>
+  `).join('');
+}
+
+
 /* ========= TABLE ========= */
 function renderTable(){
   if(!data.length) return;
 
-  const h = Object.keys(data[0]);
+  const headers = Object.keys(data[0]).filter(
+    h => !['Maquina','Usuario','LogPath'].includes(h)
+  );
 
   csvHead.innerHTML =
     '<tr>' +
       '<th>#</th>' +
-      h.map(x => `<th>${x}</th>`).join('') +
+      headers.map(h => `<th>${h}</th>`).join('') +
     '</tr>';
 
   csvBody.innerHTML = data.map((r, index) => {
@@ -440,10 +601,150 @@ function renderTable(){
     return `
       <tr class="${rowClass}">
         <td>${index + 1}</td>
-        ${h.map(k => `<td>${r[k]}</td>`).join('')}
+        ${headers.map(k => `<td>${r[k] ?? ''}</td>`).join('')}
       </tr>
     `;
   }).join('');
+}
+
+
+function copyToClipboard(text) {
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.style.position = 'fixed'; // evita scroll
+  textarea.style.opacity = '0';
+
+  document.body.appendChild(textarea);
+  textarea.select();
+
+  try {
+    document.execCommand('copy');
+  } catch (err) {
+    alert('No se pudo copiar');
+  }
+
+  document.body.removeChild(textarea);
+}
+
+
+function aggregateBytesByClient(from, to) {
+  const result = {};
+
+  data.forEach(r => {
+    if (from && r.Fecha < from) return;
+    if (to && r.Fecha > to) return;
+
+    const cliente = r.Cliente || 'Desconocido';
+    result[cliente] = (result[cliente] || 0) + Number(r.BytesCopiados || 0);
+  });
+
+  return result;
+}
+
+function renderComparison() {
+  const aFrom = cmpAFrom.value;
+  const aTo   = cmpATo.value;
+  const bFrom = cmpBFrom.value;
+  const bTo   = cmpBTo.value;
+
+  if (!aFrom || !aTo || !bFrom || !bTo) {
+    alert('Selecciona ambos rangos completos');
+    return;
+  }
+
+  const bytesA = aggregateBytesByClient(aFrom, aTo);
+  const bytesB = aggregateBytesByClient(bFrom, bTo);
+
+  const clientes = Array.from(
+    new Set([...Object.keys(bytesA), ...Object.keys(bytesB)])
+  ).sort();
+
+  const unit = unitSelect.value;
+  const factor = { MB: 1024**2, GB: 1024**3, TB: 1024**4 }[unit];
+
+  const dataA = clientes.map(c => (bytesA[c] || 0) / factor);
+  const dataB = clientes.map(c => (bytesB[c] || 0) / factor);
+
+  if (charts.compare) charts.compare.destroy();
+
+  charts.compare = new Chart(compareChart, {
+    type: 'bar',
+    data: {
+      labels: clientes,
+      datasets: [
+        {
+          label: `Periodo A (${aFrom} → ${aTo})`,
+          data: dataA,
+          backgroundColor: 'rgba(14,165,233,0.75)'
+        },
+        {
+          label: `Periodo B (${bFrom} → ${bTo})`,
+          data: dataB,
+          backgroundColor: 'rgba(99,102,241,0.75)'
+        }
+      ]
+    },
+    options: {
+      plugins: {
+        legend: { labels: { color: '#e5e7eb' } },
+        tooltip: {
+          callbacks: {
+            label: ctx => `${ctx.raw.toFixed(2)} ${unit}`
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: {
+            color: '#e5e7eb',
+            maxRotation: 45,
+            minRotation: 30
+          },
+          grid: { color: 'rgba(255,255,255,0.05)' }
+        },
+        y: {
+          ticks: {
+            color: '#e5e7eb',
+            callback: v => v + ' ' + unit
+          },
+          grid: { color: 'rgba(255,255,255,0.05)' }
+        }
+      }
+    }
+  });
+}
+
+function addChartFullPage(pdf, chart, title, subtitle = '') {
+  const W = 297, H = 210, M = 15;
+
+  pdf.addPage();
+
+  // 🔥 FONDO OSCURO (hereda dashboard)
+  pdf.setFillColor(11, 18, 32); // rgb de #0b1220
+  pdf.rect(0, 0, W, H, 'F');
+
+  // Títulos en claro
+  pdf.setTextColor(229, 231, 235); // #e5e7eb
+  pdf.setFontSize(14);
+  pdf.text(title, M, 20);
+
+  if (subtitle) {
+    pdf.setFontSize(11);
+    pdf.text(subtitle, M, 28);
+  }
+
+  const img = chart.toBase64Image('image/png', 1);
+
+  pdf.addImage(
+    img,
+    'PNG',
+    M,
+    35,
+    W - M * 2,
+    140,
+    undefined,
+    'NONE'
+  );
 }
 
 
@@ -500,15 +801,27 @@ function exportPDF(){
     footer();
   }
 
-  chartPage('Backups por día','Ejecuciones diarias.',charts.runsDay);
-  chartPage('Bytes copiados por día','Volumen diario transferido.',charts.bytesDay);
+addChartFullPage(
+  pdf,
+  charts.runsDay,
+  'Backups por día',
+  'Ejecuciones diarias'
+);
 
-  const pieData=Object.entries(charts.runsClient.data.labels)
-    .map((_,i)=>[charts.runsClient.data.labels[i],charts.runsClient.data.datasets[0].data[i]]);
+addChartFullPage(
+  pdf,
+  charts.bytesDay,
+  'Bytes copiados por día',
+  'Volumen transferido por fecha'
+);
 
-  chartPage('Ejecuciones por cliente','Distribución por cliente.',charts.runsClient,pieData);
+addChartFullPage(
+  pdf,
+  charts.bytesClient,
+  'Bytes copiados por cliente',
+  'Distribución de datos por cliente'
+);
 
-  chartPage('Duración promedio por cliente','Duración promedio (min).',charts.durationClient);
 
   pdf.save('Reporte_Respaldos.pdf');
 }
