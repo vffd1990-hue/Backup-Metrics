@@ -89,11 +89,13 @@ tr.row-critical:hover {
 
 /* ===== HISTÓRICO CON SCROLL ===== */
 .historico-wrapper {
-  max-height: 650px; /* ~25 filas */
+  max-height: 650px;
   overflow-y: auto;
+  overflow-x: auto;   /* 👈 CLAVE */
   border: 1px solid #1f2a3d;
   border-radius: 8px;
 }
+
 
 /* botón copiar */
 .copy-btn {
@@ -115,11 +117,84 @@ tr.row-critical:hover {
   border-collapse: collapse;
 }
 
-.historico-table thead,
-.historico-table tbody tr {
-  display: table;
-  width: 100%;
-  table-layout: fixed;
+.historico-table {
+  width: max-content;   /* 👈 CLAVE */
+  min-width: 100%;
+  border-collapse: collapse;
+}
+
+.historico-table th,
+.historico-table td {
+  padding: 6px 10px;
+  white-space: nowrap;
+}
+
+
+/* ===== ANCHOS HISTÓRICO ===== */
+.historico-table th,
+.historico-table td {
+  padding: 6px 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.historico-table th:nth-child(1),
+.historico-table td:nth-child(1) {
+  width: 40px;
+  text-align: center;
+}
+
+.historico-table th:nth-child(2),
+.historico-table td:nth-child(2) {
+  width: 110px; /* Fecha */
+}
+
+.historico-table th:nth-child(3),
+.historico-table td:nth-child(3) {
+  width: 160px; /* Inicio */
+}
+
+.historico-table th:nth-child(4),
+.historico-table td:nth-child(4) {
+  width: 160px; /* Fin */
+}
+
+.historico-table th:nth-child(5),
+.historico-table td:nth-child(5) {
+  width: 120px; /* Duracion */
+}
+
+.historico-table th:nth-child(6),
+.historico-table td:nth-child(6) {
+  width: 140px; /* Cliente */
+}
+
+.historico-table th:nth-child(7),
+.historico-table td:nth-child(7) {
+  width: 220px; /* Tarea */
+}
+
+.historico-table th:nth-child(8),
+.historico-table td:nth-child(8) {
+  width: 120px; /* TipoCopia */
+}
+
+.historico-table th:nth-child(9),
+.historico-table td:nth-child(9) {
+  width: 90px; /* Estado */
+  text-align: center;
+}
+
+.historico-table th:nth-child(10),
+.historico-table td:nth-child(10),
+.historico-table th:nth-child(11),
+.historico-table td:nth-child(11),
+.historico-table th:nth-child(12),
+.historico-table td:nth-child(12) {
+  width: 120px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 
@@ -134,6 +209,8 @@ tr.row-critical:hover {
 <div class="card flex">
   <input type="file" accept=".csv" multiple onchange="loadCSV(event)">
   <select id="filterClient"></select>
+  <select id="filterTask"></select>
+<select id="filterCopyType"></select>
   <input type="date" id="fromDate" title="Fecha de inicio">
 <input type="date" id="toDate" title="Fecha final">
   <select id="unitSelect" onchange="renderAll()" title="Unidad de datos">
@@ -276,24 +353,80 @@ function loadCSV(e){
 }
 
 /* ========= FILTROS ========= */
-function initFilters(){
-  filterClient.innerHTML='<option value="">Filtrar por cliente</option>'+
-    [...new Set(raw.map(r=>r.Cliente))].map(c=>`<option>${c}</option>`).join('');
+function initFilters() {
+  // CLIENTES
+  const clientes = [...new Set(raw.map(r => r.Cliente))];
+  filterClient.innerHTML =
+    '<option value="">Todos los clientes</option>' +
+    clientes.map(c => `<option>${c}</option>`).join('');
+
+  // TAREAS (inicialmente todas)
+  initTaskFilter(raw);
+
+  // TIPOS DE COPIA (inicialmente todos)
+  initCopyTypeFilter(raw);
 }
 
-function applyFilters(){
-  data=raw.filter(r=>{
-    if(filterClient.value && r.Cliente!==filterClient.value) return false;
-    if(fromDate.value && r.Fecha<fromDate.value) return false;
-    if(toDate.value && r.Fecha>toDate.value) return false;
+
+function applyFilters() {
+  data = raw.filter(r => {
+
+    if (filterClient.value && r.Cliente !== filterClient.value) return false;
+    if (filterTask.value && r.Tarea !== filterTask.value) return false;
+    if (filterCopyType.value && r.TipoCopia !== filterCopyType.value) return false;
+
+    if (fromDate.value && r.Fecha < fromDate.value) return false;
+    if (toDate.value && r.Fecha > toDate.value) return false;
+
     return true;
   });
+
   renderAll();
 }
+
+
 function resetFilters(){
   filterClient.value=''; fromDate.value=''; toDate.value='';
   applyFilters();
 }
+
+function initTaskFilter(source) {
+  const tareas = [...new Set(source.map(r => r.Tarea).filter(Boolean))];
+  filterTask.innerHTML =
+    '<option value="">Todas las tareas</option>' +
+    tareas.map(t => `<option>${t}</option>`).join('');
+}
+
+function initCopyTypeFilter(source) {
+  const tipos = [...new Set(source.map(r => r.TipoCopia).filter(Boolean))];
+  filterCopyType.innerHTML =
+    '<option value="">Todos los tipos de copia</option>' +
+    tipos.map(t => `<option>${t}</option>`).join('');
+}
+
+filterClient.addEventListener('change', () => {
+  const client = filterClient.value;
+
+  const subset = client
+    ? raw.filter(r => r.Cliente === client)
+    : raw;
+
+  initTaskFilter(subset);
+  initCopyTypeFilter(subset);
+});
+
+filterTask.addEventListener('change', () => {
+  const task = filterTask.value;
+  const client = filterClient.value;
+
+  let subset = raw;
+
+  if (client) subset = subset.filter(r => r.Cliente === client);
+  if (task) subset = subset.filter(r => r.Tarea === task);
+
+  initCopyTypeFilter(subset);
+});
+
 
 /* ========= RENDER ========= */
 function renderAll(){
@@ -576,12 +709,40 @@ function renderTop10() {
 
 
 /* ========= TABLE ========= */
-function renderTable(){
-  if(!data.length) return;
+function renderTable() {
+  if (!data.length) return;
 
-  const headers = Object.keys(data[0]).filter(
-    h => !['Maquina','Usuario','LogPath'].includes(h)
+  const hiddenColumns = [
+    'Maquina',
+    'Usuario',
+    'LogPath',
+    'ReporteEliminados',
+	'LicenciadoA'
+  ];
+
+  const orderedColumns = [
+    'Fecha',
+    'Inicio',
+    'Fin',
+    'Duracion',
+    'Cliente',
+    'Tarea',
+    'TipoCopia',
+    'Estado',
+    'ArchivosCopiados',
+    'BytesCopiados',
+    'ArchivosEliminados',
+    'DiasSinCopia'
+  ];
+
+  const allColumns = Object.keys(data[0]).filter(
+    h => !hiddenColumns.includes(h)
   );
+
+  const headers = [
+    ...orderedColumns.filter(h => allColumns.includes(h)),
+    ...allColumns.filter(h => !orderedColumns.includes(h))
+  ];
 
   csvHead.innerHTML =
     '<tr>' +
@@ -606,6 +767,7 @@ function renderTable(){
     `;
   }).join('');
 }
+
 
 
 function copyToClipboard(text) {
