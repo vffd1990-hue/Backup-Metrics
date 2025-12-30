@@ -230,11 +230,39 @@ tr.row-critical:hover {
   <div class="kpi"><span>Clientes Críticos</span><h2 id="kpiCrit">0</h2></div>
 </div>
 
+<div class="card">
+  <h3>Estado de backups por cliente (OK vs Crítico)</h3>
+  <canvas id="statusClientChart"></canvas>
+</div>
+
+<div class="card">
+  <h3 id="statusDetailTitle">Detalle por estado</h3>
+  <div class="historico-wrapper" style="max-height:340px">
+    <table class="historico-table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Fecha</th>
+          <th>Cliente</th>
+          <th>Tarea</th>
+          <th>Estado</th>
+          <th>Días sin copia</th>
+          <th>Archivos</th>
+          <th>Bytes</th>
+        </tr>
+      </thead>
+      <tbody id="statusDetailBody"></tbody>
+    </table>
+  </div>
+</div>
+
+
 <div class="card"><h3>Backups por día</h3><canvas id="runsDayChart"></canvas></div>
 <div class="card"><h3>Bytes copiados por día</h3><canvas id="bytesDayChart"></canvas></div>
 <div class="card"><h3>Ejecuciones por cliente</h3><canvas id="runsClientChart"></canvas></div>
 <div class="card"><h3>Duración promedio por cliente (min)</h3><canvas id="durationClientChart"></canvas></div>
 <div class="card"><h3>Bytes copiados por cliente</h3><canvas id="bytesClientChart"></canvas></div>
+
 
 <div class="card">
   <h3>Top 10 copias más grandes</h3>
@@ -430,7 +458,7 @@ filterTask.addEventListener('change', () => {
 
 /* ========= RENDER ========= */
 function renderAll(){
-  renderKPIs(); renderCharts(); renderTable(); renderTop10();
+  renderKPIs(); renderCharts();renderStatusClientChart(); renderTable(); renderTop10();
 }
 
 function renderKPIs(){
@@ -440,6 +468,126 @@ function renderKPIs(){
   kpiBytes.textContent=(data.reduce((s,r)=>s+Number(r.BytesCopiados||0),0)/f).toFixed(2)+' '+u;
   kpiCrit.textContent=[...new Set(data.filter(r=>r.Estado!=='OK'||Number(r.DiasSinCopia)>=3).map(r=>r.Cliente))].length;
 }
+
+
+
+function renderStatusClientChart() {
+
+  const ok = {};
+  const crit = {};
+
+  data.forEach(r => {
+    const c = r.Cliente || 'Desconocido';
+    const isCrit =
+      (r.Estado || '').toUpperCase() !== 'OK' ||
+      Number(r.DiasSinCopia || 0) >= 3;
+
+    if (isCrit) crit[c] = (crit[c] || 0) + 1;
+    else ok[c] = (ok[c] || 0) + 1;
+  });
+
+  const clientes = Array.from(new Set([
+    ...Object.keys(ok),
+    ...Object.keys(crit)
+  ]));
+
+  if (charts.statusClient) charts.statusClient.destroy();
+
+  charts.statusClient = new Chart(statusClientChart, {
+    type: 'bar',
+    data: {
+      labels: clientes,
+      datasets: [
+        {
+          label: 'OK',
+          data: clientes.map(c => ok[c] || 0),
+          backgroundColor: 'rgba(34,197,94,0.8)'
+        },
+        {
+          label: 'Crítico',
+          data: clientes.map(c => crit[c] || 0),
+          backgroundColor: 'rgba(239,68,68,0.85)'
+        }
+      ]
+    },
+    options: {
+      onClick: (evt, elements) => {
+        if (!elements.length) return;
+
+        const el = elements[0];
+        const cliente = clientes[el.index];
+        const estado = charts.statusClient.data.datasets[el.datasetIndex].label;
+
+        renderStatusDetail(cliente, estado);
+      },
+      plugins: {
+        legend: { labels: { color: '#e5e7eb' } },
+        tooltip: {
+          callbacks: {
+            label: ctx => ` ${ctx.raw} ejecuciones`
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: { color: '#e5e7eb' },
+          grid: { color: 'rgba(255,255,255,0.05)' }
+        },
+        y: {
+          beginAtZero: true,
+          ticks: { color: '#e5e7eb', precision: 0 },
+          grid: { color: 'rgba(255,255,255,0.05)' }
+        }
+      }
+    }
+  });
+}
+
+function renderStatusDetail(cliente, estado) {
+
+  const tbody = document.getElementById('statusDetailBody');
+  const title = document.getElementById('statusDetailTitle');
+  if (!tbody) return;
+
+  title.textContent = `Detalle ${estado} – Cliente: ${cliente}`;
+
+  const unit = unitSelect.value;
+  const factor = { MB:1024**2, GB:1024**3, TB:1024**4 }[unit];
+
+  const rows = data.filter(r => {
+    if (r.Cliente !== cliente) return false;
+
+    const isCrit =
+      (r.Estado || '').toUpperCase() !== 'OK' ||
+      Number(r.DiasSinCopia || 0) >= 3;
+
+    return estado === 'Crítico' ? isCrit : !isCrit;
+  });
+
+  if (!rows.length) {
+    tbody.innerHTML = `
+      <tr class="row-ok">
+        <td colspan="8">Sin registros para este estado</td>
+      </tr>`;
+    return;
+  }
+
+  tbody.innerHTML = rows.map((r,i)=>`
+    <tr class="${estado === 'Crítico' ? 'row-critical' : 'row-ok'}">
+      <td>${i+1}</td>
+      <td>${r.Fecha || ''}</td>
+      <td>${r.Cliente}</td>
+      <td>${r.Tarea}</td>
+      <td>${r.Estado || estado}</td>
+      <td style="text-align:center">${r.DiasSinCopia || 0}</td>
+      <td style="text-align:right">${r.ArchivosCopiados || 0}</td>
+      <td style="text-align:right">
+        ${(Number(r.BytesCopiados||0)/factor).toFixed(2)} ${unit}
+      </td>
+    </tr>
+  `).join('');
+}
+
 
 function renderCharts(){
   Object.values(charts).forEach(c=>c&&c.destroy());
