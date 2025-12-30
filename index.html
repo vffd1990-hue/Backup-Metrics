@@ -414,9 +414,21 @@ function applyFilters() {
 
 
 function resetFilters(){
-  filterClient.value=''; fromDate.value=''; toDate.value='';
+  // Limpiar valores
+  filterClient.value = '';
+  filterTask.value = '';
+  filterCopyType.value = '';
+  fromDate.value = '';
+  toDate.value = '';
+
+  // Reconstruir selects dependientes
+  initTaskFilter(raw);
+  initCopyTypeFilter(raw);
+
+  // Reaplicar filtros (ahora sí limpios)
   applyFilters();
 }
+
 
 function initTaskFilter(source) {
   const tareas = [...new Set(source.map(r => r.Tarea).filter(Boolean))];
